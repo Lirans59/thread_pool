@@ -29,7 +29,7 @@ private:
 
 class Worker
 {
-    const size_t maxThreads = std::thread::hardware_concurrency();
+    enum {maxThreads = 20};
 public:
     Worker(size_t threadCount = 1) :
         m_running(true),
