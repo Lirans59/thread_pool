@@ -5,7 +5,6 @@
 #include <mutex>
 #include <condition_variable>
 #include <chrono>
-#include <Windows.h>
 
 //template<typename returnType, typename... Args>
 class Task
@@ -33,21 +32,21 @@ private:
     task_t m_task;
 };
 
-class Worker
+class ThreadPool
 {
     const size_t maxThreads = std::thread::hardware_concurrency();
 public:
-    Worker(size_t threadCount = 1) :
+    ThreadPool(size_t threadCount = 1) :
         m_running(true),
         m_finish(false),
         m_thread_pool( ((threadCount > maxThreads) ? maxThreads : threadCount) )
     {
         for (int i = 0; i < ((threadCount > maxThreads) ? maxThreads : threadCount); i++) {
-            m_thread_pool[i] = std::thread(&Worker::workThread, this);
+            m_thread_pool[i] = std::thread(&ThreadPool::workThread, this);
         }
     }
 
-    ~Worker()
+    ~ThreadPool()
     {
         m_running = false;
         m_task_cv.notify_all();
@@ -65,6 +64,7 @@ public:
         }
         m_task_cv.notify_one();
     }
+
     void join()
     {
         m_finish = true;
@@ -116,22 +116,24 @@ private:
     std::vector<std::thread>    m_thread_pool;
 };
 
-void test()
+void test(unsigned int threadCount, unsigned int taskCount)
 {
-    Worker w(2);
-    std::cout << "Number of threads: " << w.threadCount() << std::endl;
-
-    for (int i = 0; i < 13; i++) {
-        w.push(Task([i] {std::this_thread::sleep_for(std::chrono::seconds(1)); }));
+    ThreadPool tp(threadCount);
+    for (int i = 0; i < taskCount; i++) {
+        tp.push(Task([i] {std::this_thread::sleep_for(std::chrono::seconds(1)); }));
     }
-    w.join();
+    tp.join();
 }
 
 int main()
 {
+    unsigned int threadCount, taskCount;
+    std::cout << "Enter number of threads: "; std::cin >> threadCount;
+    std::cout << "Enter number of tasks: "; std::cin >> taskCount;
+
     auto start = std::chrono::high_resolution_clock::now();
 
-    test();
+    test(threadCount, taskCount);
 
     auto end = std::chrono::high_resolution_clock::now();
 
