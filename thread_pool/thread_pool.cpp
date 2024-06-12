@@ -11,10 +11,16 @@
 class Task
 {
 public:
-    Task()
-        : m_isDefault(true), m_task([] {std::cout << "default task\n"; }) {}
-    Task(std::function<void()>&& task)
-        : m_isDefault(false), m_task(std::move(task)) {}
+    typedef std::function<void()> task_t;
+
+    Task() :
+        m_isDefault(true),
+        m_task([] {})
+    {}
+    Task(task_t&& task) :
+        m_isDefault(false),
+        m_task(task)
+    {}
 
     void exec()
     {
@@ -23,73 +29,69 @@ public:
 
     bool isDefault() { return m_isDefault; }
 private:
-    std::function<void()> m_task;
     bool m_isDefault;
+    task_t m_task;
 };
 
 class Worker
 {
-    enum {maxThreads = 20};
+    const size_t maxThreads = std::thread::hardware_concurrency();
 public:
     Worker(size_t threadCount = 1) :
         m_running(true),
         m_finish(false),
-        m_threads( ((threadCount > maxThreads) ? maxThreads : threadCount) )
+        m_thread_pool( ((threadCount > maxThreads) ? maxThreads : threadCount) )
     {
         for (int i = 0; i < ((threadCount > maxThreads) ? maxThreads : threadCount); i++) {
-            m_threads[i] = std::thread(&Worker::workThread, this);
+            m_thread_pool[i] = std::thread(&Worker::workThread, this);
         }
     }
 
     ~Worker()
     {
         m_running = false;
-        m_cv.notify_all();
-        for (int i = 0; i < m_threads.size(); i++) {
-            if(m_threads[i].joinable())
-                m_threads[i].join();
+        m_task_cv.notify_all();
+        for (int i = 0; i < m_thread_pool.size(); i++) {
+            if(m_thread_pool[i].joinable())
+                m_thread_pool[i].join();
         }
     }
 
     void push(Task&& task)
     {
         {
-            std::lock_guard<std::mutex> lock(this->m_lock);
-            m_taskQueue.push(task);
+            std::lock_guard<std::mutex> lock(this->m_task_mtx);
+            m_task_queue.push(task);
         }
-        m_cv.notify_one();
+        m_task_cv.notify_one();
     }
     void join()
     {
         m_finish = true;
-        m_cv.notify_all();
-        for (int i = 0; i < m_threads.size(); i++) {
-            if (m_threads[i].joinable())
-                m_threads[i].join();
+        m_task_cv.notify_all();
+        for (int i = 0; i < m_thread_pool.size(); i++) {
+            if (m_thread_pool[i].joinable())
+                m_thread_pool[i].join();
         }
     }
 
     bool running() const { return m_running; }
     bool finish() const { return m_finish; }
-    int threadCount() const { return m_threads.size(); }
+    int threadCount() const { return m_thread_pool.size(); }
 
 private:
     void workThread()
     {
-        /*DWORD_PTR mask = 1 << (m_core++ % 4);
-        if (!SetThreadAffinityMask(GetCurrentThread(), mask)) {
-            std::cerr << "Error setting thread affinity." << std::endl;
-        }*/
         while (m_running)
         {
-            std::unique_lock<std::mutex> lock(m_lock);
-            this->m_cv.wait(lock, [this] { return (!this->m_taskQueue.empty() || !this->running() || this->finish()); });
+            std::unique_lock<std::mutex> lock(m_task_mtx);
+            this->m_task_cv.wait(lock, [this] { return (!this->m_task_queue.empty() || !this->running() || this->finish()); });
             if (!this->running()) { return; }
-            if (this->m_taskQueue.empty() && this->finish()) { return; }
-            Task t = m_taskQueue.front();
-            m_taskQueue.pop();
+            if (this->m_task_queue.empty() && this->finish()) { return; }
+            Task t = std::move(m_task_queue.front());
+            m_task_queue.pop();
             lock.unlock();
-            m_cv.notify_one();
+            m_task_cv.notify_one();
             
             // Do work on t
             if (!t.isDefault()) {
@@ -100,22 +102,27 @@ private:
     }
 
 private:
-    std::queue<Task> m_taskQueue;
-    std::mutex m_lock;
-    std::condition_variable m_cv;
-    bool m_running;
-    bool m_finish;
-    //int m_core = 0;
-    std::vector<std::thread> m_threads;
+    std::queue<Task>            m_task_queue;
+    std::mutex                  m_task_mtx;
+    std::condition_variable     m_task_cv;
+
+    std::queue<std::istream>    m_result;
+    std::mutex                  m_result_mtx;
+    std::condition_variable     m_result_cv;
+
+    bool                        m_running;
+    bool                        m_finish;
+
+    std::vector<std::thread>    m_thread_pool;
 };
 
 void test()
 {
-    Worker w(15);
+    Worker w(2);
     std::cout << "Number of threads: " << w.threadCount() << std::endl;
 
-    for (int i = 0; i < 10; i++) {
-        w.push(Task([] {std::this_thread::sleep_for(std::chrono::seconds(1)); }));
+    for (int i = 0; i < 13; i++) {
+        w.push(Task([i] {std::this_thread::sleep_for(std::chrono::seconds(1)); }));
     }
     w.join();
 }
@@ -133,7 +140,7 @@ int main()
     auto durationMili = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     auto durationSec = std::chrono::duration_cast<std::chrono::seconds>(end - start);
 
-    std::cout << "\n\ntime:\n" << durationSec.count() << "\t\t[seconds]" << std::endl;
+    std::cout << "\n\nTime:\n" << durationSec.count() << "\t\t[seconds]" << std::endl;
     std::cout << durationMili.count() << "\t\t[miliseconds]" << std::endl;
     std::cout << durationMicro.count() << "\t\t[microseconds]\n" << std::endl;
 }
