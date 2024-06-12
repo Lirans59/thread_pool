@@ -5,6 +5,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <chrono>
+#include <iomanip>
 
 //template<typename returnType, typename... Args>
 class Task
@@ -142,7 +143,8 @@ int main()
     auto durationMili = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     auto durationSec = std::chrono::duration_cast<std::chrono::seconds>(end - start);
 
-    std::cout << "\n\nTime:\n" << durationSec.count() << "\t\t[seconds]" << std::endl;
-    std::cout << durationMili.count() << "\t\t[miliseconds]" << std::endl;
-    std::cout << durationMicro.count() << "\t\t[microseconds]\n" << std::endl;
+    std::cout << "\n\nTime:" << std::endl;
+    std::cout << std::setw(20) << std::left << durationSec.count() << "[seconds]" << std::endl;
+    std::cout << std::setw(20) << std::left << durationMili.count() << "[miliseconds]" << std::endl;
+    std::cout << std::setw(20) << std::left << durationMicro.count() << "[microseconds]\n" << std::endl;
 }
